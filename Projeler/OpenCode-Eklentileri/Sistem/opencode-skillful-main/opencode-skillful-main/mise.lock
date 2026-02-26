@@ -1,0 +1,48 @@
+[[tools.bun]]
+version = "1.3.2"
+backend = "core:bun"
+"platforms.linux-arm64" = { checksum = "sha256:fe38c13b6b6b450af4e4f0fb8e04b22eca53f9cd71068d1d1eebf4f4a44f02fb", url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.2/bun-linux-aarch64.zip"}
+"platforms.linux-arm64-musl" = { checksum = "sha256:baba9472d8fe0283c7b993fd67fd910540f7608c860ed328fa331c4d0c0dbe54", url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.2/bun-linux-aarch64-musl.zip"}
+"platforms.linux-x64" = { checksum = "sha256:0cb56a4484bd7764a3eef9b9e67ab457840981287b46794974d1e6612cbf6709", url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.2/bun-linux-x64.zip"}
+"platforms.linux-x64-baseline" = { checksum = "sha256:7ff09a4a519e8206d60d7b763072cbf3642f8370690165586d303faf21692172", url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.2/bun-linux-x64-baseline.zip"}
+"platforms.linux-x64-musl" = { checksum = "sha256:6e777365098755ab5169d1a6092b6ae18761f4a6e4a32365252ad989e494885a", url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.2/bun-linux-x64-musl.zip"}
+"platforms.linux-x64-musl-baseline" = { checksum = "sha256:ddfb1994a0480dab966b022e08242bf4f59b4417e83213b4a2a30560d11e1fd4", url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.2/bun-linux-x64-musl-baseline.zip"}
+"platforms.macos-arm64" = { checksum = "sha256:d85847982db574518130a45582bcf14d8e2be9610b66cb5046c20348578b0fe2", url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.2/bun-darwin-aarch64.zip"}
+"platforms.macos-x64" = { checksum = "sha256:78d4f0c8637427ac0be55639a697ff6a025e8eb940a6920ca508603c41a5a7b0", url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.2/bun-darwin-x64.zip"}
+"platforms.macos-x64-baseline" = { checksum = "sha256:2d6dda2c3f57a7a9bba8525d51c4006e3d8cecc4b6ad33ff69ee076606c137bc", url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.2/bun-darwin-x64-baseline.zip"}
+"platforms.windows-x64" = { checksum = "sha256:5e73b4eba0cc09085df141e1167609b100570f1a0d538d87f9b9c0da54af58d6", url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.2/bun-windows-x64.zip"}
+"platforms.windows-x64-baseline" = { checksum = "sha256:9b26588d177a27f3c170f6549a8ba8e6458b0ee97b9b5c891ebdf4dbe6a6cb6c", url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.2/bun-windows-x64-baseline.zip"}
+
+[[tools.hk]]
+version = "1.26.0"
+backend = "aqua:jdx/hk"
+"platforms.linux-arm64" = { checksum = "sha256:7e235dabf4fe5a6445a89dff8f7cdb0fe7543ec6cef3201a9d3a5338d4d8066b", url = "https://github.com/jdx/hk/releases/download/v1.26.0/hk-aarch64-unknown-linux-gnu.tar.gz"}
+"platforms.linux-x64" = { checksum = "sha256:65c5508b13b6e3c2b3401e0e07205e413d35b5432aec4854e66fed500c635226", url = "https://github.com/jdx/hk/releases/download/v1.26.0/hk-x86_64-unknown-linux-gnu.tar.gz"}
+"platforms.macos-arm64" = { checksum = "sha256:923763567753e9dc26ea13a052bf8252664539c8a19521b09482c404e4f187e8", url = "https://github.com/jdx/hk/releases/download/v1.26.0/hk-aarch64-apple-darwin.tar.gz"}
+"platforms.windows-x64" = { checksum = "sha256:4aa59cd5746b9dc82762ed8fdb0ae24d4d15bf09f634af590a2f39de2a157d9f", url = "https://github.com/jdx/hk/releases/download/v1.26.0/hk-x86_64-pc-windows-msvc.zip"}
+
+[[tools.npm]]
+version = "11.6.3"
+backend = "npm"
+
+[[tools.pkl]]
+version = "0.27.2"
+backend = "aqua:apple/pkl"
+"platforms.linux-arm64" = { url = "https://github.com/apple/pkl/releases/download/0.27.2/pkl-linux-aarch64"}
+"platforms.linux-x64" = { url = "https://github.com/apple/pkl/releases/download/0.27.2/pkl-linux-amd64"}
+"platforms.macos-arm64" = { url = "https://github.com/apple/pkl/releases/download/0.27.2/pkl-macos-aarch64"}
+"platforms.macos-x64" = { url = "https://github.com/apple/pkl/releases/download/0.27.2/pkl-macos-amd64"}
+"platforms.windows-x64" = { url = "https://github.com/apple/pkl/releases/download/0.27.2/pkl-windows-amd64.exe"}
+
+[[tools.semver]]
+version = "3.4.0"
+backend = "vfox:semver"
+"platforms.linux-arm64" = { url = "https://raw.githubusercontent.com/fsaintjacques/semver-tool/3.4.0/src/semver"}
+"platforms.linux-x64" = { url = "https://raw.githubusercontent.com/fsaintjacques/semver-tool/3.4.0/src/semver"}
+"platforms.macos-arm64" = { url = "https://raw.githubusercontent.com/fsaintjacques/semver-tool/3.4.0/src/semver"}
+"platforms.macos-x64" = { url = "https://raw.githubusercontent.com/fsaintjacques/semver-tool/3.4.0/src/semver"}
+"platforms.windows-x64" = { url = "https://raw.githubusercontent.com/fsaintjacques/semver-tool/3.4.0/src/semver"}
+
+[[tools.usage]]
+version = "2.8.0"
+backend = "ubi:jdx/usage"

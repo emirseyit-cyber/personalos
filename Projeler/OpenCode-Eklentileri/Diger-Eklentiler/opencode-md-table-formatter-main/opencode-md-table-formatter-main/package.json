@@ -1,0 +1,41 @@
+{
+  "name": "@franlol/opencode-md-table-formatter",
+  "version": "0.0.3",
+  "description": "Markdown table formatter plugin for OpenCode with concealment mode support",
+  "keywords": [
+    "opencode",
+    "plugin",
+    "markdown",
+    "table",
+    "formatter",
+    "concealment",
+    "alignment",
+    "text-formatting"
+  ],
+  "homepage": "https://github.com/franlol/opencode-md-table-formatter#readme",
+  "bugs": {
+    "url": "https://github.com/franlol/opencode-md-table-formatter/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/franlol/opencode-md-table-formatter.git"
+  },
+  "license": "MIT",
+  "author": "franlol",
+  "type": "module",
+  "main": "index.ts",
+  "files": [
+    "index.ts",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=0.13.7"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

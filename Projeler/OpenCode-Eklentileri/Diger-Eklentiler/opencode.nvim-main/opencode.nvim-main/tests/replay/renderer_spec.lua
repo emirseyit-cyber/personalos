@@ -1,0 +1,301 @@
+local state = require('opencode.state')
+local ui = require('opencode.ui.ui')
+local helpers = require('tests.helpers')
+local output_window = require('opencode.ui.output_window')
+local assert = require('luassert')
+local stub = require('luassert.stub')
+local config = require('opencode.config')
+
+local function assert_output_matches(expected, actual, name)
+  local normalized_extmarks = helpers.normalize_namespace_ids(actual.extmarks)
+
+  assert.are.equal(
+    #expected.lines,
+    #actual.lines,
+    string.format(
+      'Line count mismatch: expected %d, got %d.\nFirst difference at index %d:\n  Expected: %s\n  Actual: %s',
+      #expected.lines,
+      #actual.lines,
+      math.min(#expected.lines, #actual.lines) + 1,
+      vim.inspect(expected.lines[math.min(#expected.lines, #actual.lines) + 1]),
+      vim.inspect(actual.lines[math.min(#expected.lines, #actual.lines) + 1])
+    )
+  )
+
+  for i = 1, #expected.lines do
+    assert.are.equal(
+      expected.lines[i],
+      actual.lines[i],
+      string.format(
+        'Line %d mismatch:\n  Expected: %s\n  Actual: %s',
+        i,
+        vim.inspect(expected.lines[i]),
+        vim.inspect(actual.lines[i])
+      )
+    )
+  end
+
+  assert.are.equal(
+    #expected.extmarks,
+    #normalized_extmarks,
+    string.format(
+      'Extmark count mismatch: expected %d, got %d.\nFirst difference at index %d:\n  Expected: %s\n  Actual: %s',
+      #expected.extmarks,
+      #normalized_extmarks,
+      math.min(#expected.extmarks, #normalized_extmarks) + 1,
+      vim.inspect(expected.extmarks[math.min(#expected.extmarks, #normalized_extmarks) + 1]),
+      vim.inspect(normalized_extmarks[math.min(#expected.extmarks, #normalized_extmarks) + 1])
+    )
+  )
+
+  for i = 1, #expected.extmarks do
+    assert.are.same(
+      expected.extmarks[i],
+      normalized_extmarks[i],
+      string.format(
+        'Extmark %d mismatch:\n  Expected: %s\n  Actual: %s',
+        i,
+        vim.inspect(expected.extmarks[i]),
+        vim.inspect(normalized_extmarks[i])
+      )
+    )
+  end
+
+  local expected_action_count = expected.actions and #expected.actions or 0
+  local actual_action_count = actual.actions and #actual.actions or 0
+
+  assert.are.equal(
+    expected_action_count,
+    actual_action_count,
+    string.format('Action count mismatch: expected %d, got %d', expected_action_count, actual_action_count)
+  )
+
+  if expected.actions then
+    -- Sort both arrays for consistent comparison since order doesn't matter
+    local function sort_actions(actions)
+      local sorted = vim.deepcopy(actions)
+      table.sort(sorted, function(a, b)
+        return vim.inspect(a) < vim.inspect(b)
+      end)
+      return sorted
+    end
+
+    assert.same(
+      sort_actions(expected.actions),
+      sort_actions(actual.actions),
+      string.format(
+        'Actions mismatch:\n  Expected: %s\n  Actual: %s',
+        vim.inspect(expected.actions),
+        vim.inspect(actual.actions)
+      )
+    )
+  end
+end
+
+describe('renderer unit tests', function()
+  local event_subscriptions = {
+    'session.updated',
+    'session.compacted',
+    'session.error',
+    'message.updated',
+    'message.removed',
+    'message.part.updated',
+    'message.part.removed',
+    'permission.updated',
+    'permission.replied',
+    'question.replied',
+    'question.asked',
+    'file.edited',
+    'custom.restore_point.created',
+    'custom.emit_events.finished',
+  }
+
+  before_each(function()
+    require('opencode.event_manager').setup()
+  end)
+
+  it('subsribes to events correctly', function()
+    local renderer = require('opencode.ui.renderer')
+    local event_manager = state.event_manager
+
+    event_manager.events = {}
+
+    renderer.setup_subscriptions()
+
+    for _, event_name in ipairs(event_subscriptions) do
+      assert.is_true(
+        event_manager.events[event_name] ~= nil,
+        string.format('Renderer did not subscribe to event: %s', event_name)
+      )
+    end
+  end)
+
+  it('unsubsribes from events correctly', function()
+    local renderer = require('opencode.ui.renderer')
+    local event_manager = state.event_manager
+
+    renderer.setup_subscriptions()
+
+    renderer.setup_subscriptions(false)
+
+    for _, event_name in ipairs(event_subscriptions) do
+      assert.is_true(
+        vim.tbl_isempty(event_manager.events[event_name]),
+        string.format('Renderer did not unsubscribe from event: %s', event_name)
+      )
+    end
+  end)
+
+  it('updates active session title from session.updated event', function()
+    local renderer = require('opencode.ui.renderer')
+    local topbar = require('opencode.ui.topbar')
+
+    state.active_session = {
+      id = 'ses_123',
+      title = 'New session - 2026-02-05T22:26:08.579Z',
+      time = { created = 1, updated = 1 },
+    }
+
+    local active_session_ref = state.active_session
+    local topbar_render_stub = stub(topbar, 'render')
+
+    renderer.on_session_updated({
+      info = {
+        id = 'ses_123',
+        title = 'Branch review request',
+        time = { created = 1, updated = 2 },
+      },
+    })
+
+    assert.is_true(state.active_session == active_session_ref)
+    assert.are.equal('Branch review request', state.active_session.title)
+    assert.stub(topbar_render_stub).was_called()
+    topbar_render_stub:revert()
+  end)
+
+  it('rerenders full session when revert changes', function()
+    local renderer = require('opencode.ui.renderer')
+
+    state.messages = {}
+    state.active_session = {
+      id = 'ses_123',
+      title = 'Session',
+      time = { created = 1, updated = 1 },
+      revert = { messageID = 'msg_1', snapshot = 'a', diff = '' },
+    }
+
+    local render_stub = stub(renderer, '_render_full_session_data')
+
+    renderer.on_session_updated({
+      info = {
+        id = 'ses_123',
+        title = 'Session',
+        time = { created = 1, updated = 2 },
+        revert = { messageID = 'msg_2', snapshot = 'b', diff = '' },
+      },
+    })
+
+    assert.stub(render_stub).was_called_with(state.messages)
+    render_stub:revert()
+  end)
+
+  it('ignores session.updated for non-active session IDs', function()
+    local renderer = require('opencode.ui.renderer')
+
+    state.active_session = {
+      id = 'ses_123',
+      title = 'Session',
+      time = { created = 1, updated = 1 },
+    }
+
+    local render_stub = stub(renderer, '_render_full_session_data')
+
+    renderer.on_session_updated({
+      info = {
+        id = 'ses_999',
+        title = 'Should not apply',
+      },
+    })
+
+    assert.are.equal('Session', state.active_session.title)
+    assert.stub(render_stub).was_not_called()
+    render_stub:revert()
+  end)
+end)
+
+describe('renderer functional tests', function()
+  config.debug.show_ids = true
+
+  before_each(function()
+    helpers.replay_setup()
+  end)
+
+  after_each(function()
+    if state.windows then
+      ui.close_windows(state.windows)
+    end
+  end)
+
+  local json_files = vim.fn.glob('tests/data/*.json', false, true)
+
+  -- Don't do the full session test on these files, usually
+  -- because they involve permission prompts
+  local skip_full_session = {
+    'permission-prompt',
+    'permission-ask-new',
+    'question-ask',
+    'question-ask-other',
+    'multiple-question-ask',
+    'shifting-and-multiple-perms',
+    'message-removal',
+  }
+
+  for _, filepath in ipairs(json_files) do
+    local name = vim.fn.fnamemodify(filepath, ':t:r')
+
+    if not name:match('%.expected$') then
+      local expected_path = 'tests/data/' .. name .. '.expected.json'
+
+      if vim.fn.filereadable(expected_path) == 1 then
+        for i = 1, 2 do
+          config.ui.output.rendering.event_collapsing = i == 1 and true or false
+          it(
+            'replays '
+              .. name
+              .. ' correctly (event-by-event, '
+              .. (config.ui.output.rendering.event_collapsing and 'collapsing' or 'no collapsing')
+              .. ')',
+            function()
+              local events = helpers.load_test_data(filepath)
+              state.active_session = helpers.get_session_from_events(events)
+              local expected = helpers.load_test_data(expected_path)
+
+              helpers.replay_events(events)
+              vim.wait(1000, function()
+                return vim.tbl_isempty(state.event_manager.throttling_emitter.queue)
+              end)
+
+              local actual = helpers.capture_output(state.windows and state.windows.output_buf, output_window.namespace)
+              assert_output_matches(expected, actual, name)
+            end
+          )
+        end
+
+        if not vim.tbl_contains(skip_full_session, name) then
+          it('replays ' .. name .. ' correctly (session)', function()
+            local renderer = require('opencode.ui.renderer')
+            local events = helpers.load_test_data(filepath)
+            state.active_session = helpers.get_session_from_events(events, true)
+            local expected = helpers.load_test_data(expected_path)
+
+            local session_data = helpers.load_session_from_events(events)
+            renderer._render_full_session_data(session_data)
+
+            local actual = helpers.capture_output(state.windows and state.windows.output_buf, output_window.namespace)
+            assert_output_matches(expected, actual, name)
+          end)
+        end
+      end
+    end
+  end
+end)

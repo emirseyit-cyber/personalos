@@ -1,0 +1,27 @@
+{
+  "name": "opencode-notificator",
+  "version": "1.0.0",
+  "description": "OpenCode plugin for desktop notifications",
+  "main": "notificator.js",
+  "type": "module",
+  "scripts": {
+    "build": "node build.js",
+    "deploy": "node deploy.js",
+    "deploy:build": "node deploy.js --build-only",
+    "deploy:install": "node deploy.js --install-only"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "notifications",
+    "desktop"
+  ],
+  "author": "panta82",
+  "license": "MIT",
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.0.203"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}

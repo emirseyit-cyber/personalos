@@ -1,0 +1,624 @@
+local api = require('opencode.api')
+local core = require('opencode.core')
+local ui = require('opencode.ui.ui')
+local state = require('opencode.state')
+local stub = require('luassert.stub')
+local assert = require('luassert')
+local Promise = require('opencode.promise')
+
+describe('opencode.api', function()
+  local created_commands = {}
+
+  before_each(function()
+    created_commands = {}
+    stub(vim.api, 'nvim_create_user_command').invokes(function(name, fn, opts)
+      table.insert(created_commands, {
+        name = name,
+        fn = fn,
+        opts = opts,
+      })
+    end)
+    stub(core, 'open').invokes(function()
+      return Promise.new():resolve('done')
+    end)
+
+    stub(core, 'run')
+    stub(core, 'cancel')
+    stub(core, 'send_message')
+    stub(ui, 'close_windows')
+  end)
+
+  after_each(function()
+    -- luassert.stub automatically restores originals after each test
+  end)
+
+  describe('commands table', function()
+    it('contains the expected commands with proper structure', function()
+      local expected_commands = {
+        'open',
+        'close',
+        'cancel',
+        'toggle',
+        'toggle_focus',
+        'toggle_pane',
+        'session',
+        'swap',
+        'undo',
+        'redo',
+        'diff',
+        'revert',
+        'restore',
+        'breakpoint',
+        'agent',
+        'models',
+        'run',
+        'run_new',
+        'help',
+        'mcp',
+        'permission',
+      }
+
+      for _, cmd_name in ipairs(expected_commands) do
+        local cmd = api.commands[cmd_name]
+        assert.truthy(cmd, 'Command ' .. cmd_name .. ' should exist')
+        assert.truthy(cmd.desc, 'Command should have a description')
+        assert.is_function(cmd.fn, 'Command should have a function')
+      end
+    end)
+  end)
+
+  describe('setup', function()
+    it('registers the main Opencode command and legacy commands', function()
+      api.setup()
+
+      local main_cmd_found = false
+      local legacy_cmd_count = 0
+
+      for i, cmd in ipairs(created_commands) do
+        if cmd.name == 'Opencode' then
+          main_cmd_found = true
+          assert.equal('Opencode.nvim main command with nested subcommands', cmd.opts.desc)
+        else
+          legacy_cmd_count = legacy_cmd_count + 1
+          assert.truthy(string.match(cmd.opts.desc, 'deprecated'), 'Legacy command should be marked as deprecated')
+        end
+      end
+
+      assert.truthy(main_cmd_found, 'Main Opencode command should be registered')
+      assert.truthy(legacy_cmd_count > 0, 'Legacy commands should be registered')
+    end)
+
+    it('sets up legacy command functions that route to main command', function()
+      local stored_fns = {}
+      local cmd_stub
+
+      vim.api.nvim_create_user_command = function(name, fn, _)
+        stored_fns[name] = fn
+      end
+
+      cmd_stub = stub(vim, 'cmd')
+
+      api.setup()
+
+      stored_fns['OpencodeOpenInput']()
+      assert.stub(cmd_stub).was_called()
+      assert.stub(cmd_stub).was_called_with('Opencode open input')
+
+      cmd_stub:clear()
+      stored_fns['OpencodeStop']()
+      assert.stub(cmd_stub).was_called_with('Opencode cancel')
+
+      cmd_stub:clear()
+      stored_fns['OpencodeClose']()
+      assert.stub(cmd_stub).was_called_with('Opencode close')
+
+      cmd_stub:revert()
+    end)
+  end)
+
+  describe('Lua API', function()
+    it('provides callable functions that match commands', function()
+      -- All core/ui methods are stubbed in before_each; no need for local spies or wrappers
+
+      -- Test the exported functions
+      assert.is_function(api.open_input, 'Should export open_input')
+      api.open_input():wait()
+      assert.stub(core.open).was_called()
+      assert.stub(core.open).was_called_with({ new_session = false, focus = 'input', start_insert = true })
+
+      -- Test run function
+      assert.is_function(api.run, 'Should export run')
+      api.run('test prompt'):wait()
+      assert.stub(core.send_message).was_called()
+      assert.stub(core.send_message).was_called_with('test prompt', {
+        new_session = false,
+        focus = 'output',
+      })
+
+      -- Test run_new_session function
+      assert.is_function(api.run_new_session, 'Should export run_new_session')
+      api.run_new_session('test prompt new'):wait()
+      assert.stub(core.send_message).was_called()
+      assert.stub(core.send_message).was_called_with('test prompt new', {
+        new_session = true,
+        focus = 'output',
+      })
+    end)
+  end)
+
+  describe('completion triggers', function()
+    it('does not restore cursor position for context_items', function()
+      local config = require('opencode.config')
+      local original_get_key_for_function = config.get_key_for_function
+      local original_completion = package.loaded['opencode.ui.completion']
+
+      config.get_key_for_function = function(scope, function_name)
+        if scope == 'input_window' and function_name == 'context_items' then
+          return '#'
+        end
+        return original_get_key_for_function(scope, function_name)
+      end
+
+      local trigger_char = nil
+      package.loaded['opencode.ui.completion'] = {
+        trigger_completion = function(char)
+          return function()
+            trigger_char = char
+          end
+        end,
+      }
+
+      stub(ui, 'focus_input')
+
+      api.context_items()
+
+      config.get_key_for_function = original_get_key_for_function
+      package.loaded['opencode.ui.completion'] = original_completion
+
+      assert.stub(ui.focus_input).was_called_with({ restore_position = false, start_insert = true })
+      assert.equal('#', trigger_char)
+    end)
+  end)
+
+  describe('run command argument parsing', function()
+    it('parses agent prefix and passes to send_message', function()
+      api.commands.run.fn({ 'agent=plan', 'analyze', 'this', 'code' }):wait()
+      assert.stub(core.send_message).was_called()
+      assert.stub(core.send_message).was_called_with('analyze this code', {
+        new_session = false,
+        focus = 'output',
+        agent = 'plan',
+      })
+    end)
+
+    it('parses model prefix and passes to send_message', function()
+      api.commands.run.fn({ 'model=openai/gpt-4', 'test', 'prompt' }):wait()
+      assert.stub(core.send_message).was_called()
+      assert.stub(core.send_message).was_called_with('test prompt', {
+        new_session = false,
+        focus = 'output',
+        model = 'openai/gpt-4',
+      })
+    end)
+
+    it('parses context prefix and passes to send_message', function()
+      api.commands.run.fn({ 'context=current_file.enabled=false', 'test' }):wait()
+      assert.stub(core.send_message).was_called()
+      assert.stub(core.send_message).was_called_with('test', {
+        new_session = false,
+        focus = 'output',
+        context = { current_file = { enabled = false } },
+      })
+    end)
+
+    it('parses multiple prefixes and passes all to send_message', function()
+      api.commands.run
+        .fn({
+          'agent=plan',
+          'model=openai/gpt-4',
+          'context=current_file.enabled=false',
+          'analyze',
+          'code',
+        })
+        :wait()
+      assert.stub(core.send_message).was_called()
+      assert.stub(core.send_message).was_called_with('analyze code', {
+        new_session = false,
+        focus = 'output',
+        agent = 'plan',
+        model = 'openai/gpt-4',
+        context = { current_file = { enabled = false } },
+      })
+    end)
+
+    it('works with run_new command', function()
+      api.commands.run_new.fn({ 'agent=plan', 'model=openai/gpt-4', 'new', 'session', 'prompt' }):wait()
+      assert.stub(core.send_message).was_called()
+      assert.stub(core.send_message).was_called_with('new session prompt', {
+        new_session = true,
+        focus = 'output',
+        agent = 'plan',
+        model = 'openai/gpt-4',
+      })
+    end)
+
+    it('requires a prompt after prefixes', function()
+      local notify_stub = stub(vim, 'notify')
+      api.commands.run.fn({ 'agent=plan' })
+      assert.stub(notify_stub).was_called_with('Prompt required', vim.log.levels.ERROR)
+      notify_stub:revert()
+    end)
+
+    it('Lua API accepts opts directly without parsing', function()
+      api.run('test prompt', { agent = 'plan', model = 'openai/gpt-4' }):wait()
+      assert.stub(core.send_message).was_called()
+      assert.stub(core.send_message).was_called_with('test prompt', {
+        new_session = false,
+        focus = 'output',
+        agent = 'plan',
+        model = 'openai/gpt-4',
+      })
+    end)
+  end)
+
+  describe('/commands command', function()
+    it('displays user commands when available', function()
+      local config_file = require('opencode.config_file')
+      local original_get_user_commands = config_file.get_user_commands
+
+      config_file.get_user_commands = function()
+        local p = Promise.new()
+        p:resolve({
+          ['build'] = { description = 'Build the project' },
+          ['test'] = { description = 'Run tests' },
+          ['deploy'] = { description = 'Deploy to production' },
+        })
+        return p
+      end
+
+      stub(ui, 'render_lines')
+      stub(api, 'open_input')
+
+      api.commands_list()
+
+      assert.stub(api.open_input).was_called()
+      assert.stub(ui.render_lines).was_called()
+
+      local render_args = ui.render_lines.calls[1].refs[1]
+      local rendered_text = table.concat(render_args, '\n')
+
+      assert.truthy(rendered_text:match('Available User Commands'))
+      assert.truthy(rendered_text:match('Description'))
+      assert.truthy(rendered_text:match('build'))
+      assert.truthy(rendered_text:match('Build the project'))
+      assert.truthy(rendered_text:match('test'))
+      assert.truthy(rendered_text:match('Run tests'))
+      assert.truthy(rendered_text:match('deploy'))
+      assert.truthy(rendered_text:match('Deploy to production'))
+
+      config_file.get_user_commands = original_get_user_commands
+    end)
+
+    it('shows warning when no user commands exist', function()
+      local config_file = require('opencode.config_file')
+      local original_get_user_commands = config_file.get_user_commands
+
+      config_file.get_user_commands = function()
+        local p = Promise.new()
+        p:resolve(nil)
+        return p
+      end
+
+      local notify_stub = stub(vim, 'notify')
+
+      api.commands_list()
+
+      assert
+        .stub(notify_stub)
+        .was_called_with('No user commands found. Please check your opencode config file.', vim.log.levels.WARN)
+
+      config_file.get_user_commands = original_get_user_commands
+      notify_stub:revert()
+    end)
+  end)
+
+  describe('command autocomplete', function()
+    it('provides user command names for completion', function()
+      local config_file = require('opencode.config_file')
+      local original_get_user_commands = config_file.get_user_commands
+
+      config_file.get_user_commands = function()
+        local p = Promise.new()
+        p:resolve({
+          ['build'] = { description = 'Build the project' },
+          ['test'] = { description = 'Run tests' },
+          ['deploy'] = { description = 'Deploy to production' },
+        })
+        return p
+      end
+
+      local completions = api.commands.command.completions()
+
+      assert.truthy(vim.tbl_contains(completions, 'build'))
+      assert.truthy(vim.tbl_contains(completions, 'test'))
+      assert.truthy(vim.tbl_contains(completions, 'deploy'))
+
+      config_file.get_user_commands = original_get_user_commands
+    end)
+
+    it('returns empty array when no user commands exist', function()
+      local config_file = require('opencode.config_file')
+      local original_get_user_commands = config_file.get_user_commands
+
+      config_file.get_user_commands = function()
+        local p = Promise.new()
+        p:resolve(nil)
+        return p
+      end
+
+      local completions = api.commands.command.completions()
+
+      assert.same({}, completions)
+
+      config_file.get_user_commands = original_get_user_commands
+    end)
+
+    it('integrates with complete_command for Opencode command <TAB>', function()
+      local config_file = require('opencode.config_file')
+      local original_get_user_commands = config_file.get_user_commands
+
+      config_file.get_user_commands = function()
+        local p = Promise.new()
+        p:resolve({
+          ['build'] = { description = 'Build the project' },
+          ['test'] = { description = 'Run tests' },
+        })
+        return p
+      end
+
+      local results = api.complete_command('b', 'Opencode command b', 18)
+
+      assert.truthy(vim.tbl_contains(results, 'build'))
+      assert.falsy(vim.tbl_contains(results, 'test'))
+
+      config_file.get_user_commands = original_get_user_commands
+    end)
+  end)
+
+  describe('slash commands with user commands', function()
+    it('includes user commands in get_slash_commands', function()
+      local config_file = require('opencode.config_file')
+      local original_get_user_commands = config_file.get_user_commands
+
+      config_file.get_user_commands = function()
+        local p = Promise.new()
+        p:resolve({
+          ['build'] = { description = 'Build the project' },
+          ['test'] = { description = 'Run tests', template = 'Run tests with $ARGUMENTS' },
+        })
+        return p
+      end
+
+      local slash_commands = api.get_slash_commands():wait()
+
+      local build_found = false
+      local test_found = false
+
+      for _, cmd in ipairs(slash_commands) do
+        if cmd.slash_cmd == '/build' then
+          build_found = true
+          assert.equal('Build the project', cmd.desc)
+          assert.is_function(cmd.fn)
+          assert.truthy(cmd.args)
+        elseif cmd.slash_cmd == '/test' then
+          test_found = true
+          assert.equal('Run tests', cmd.desc)
+          assert.is_function(cmd.fn)
+          assert.truthy(cmd.args)
+        end
+      end
+
+      assert.truthy(build_found, 'Should include /build command')
+      assert.truthy(test_found, 'Should include /test command')
+
+      config_file.get_user_commands = original_get_user_commands
+    end)
+
+    describe('user command model/agent selection', function()
+      before_each(function()
+        stub(api, 'open_input').invokes(function()
+          return Promise.new():resolve('done')
+        end)
+      end)
+
+      it('invokes run with correct model and agent', function()
+        local config_file = require('opencode.config_file')
+        local original_get_user_commands = config_file.get_user_commands
+
+        config_file.get_user_commands = function()
+          local p = Promise.new()
+          p:resolve({
+            ['test-no-model'] = { description = 'Run tests', template = 'Run tests with $ARGUMENTS' },
+            ['test-with-model'] = {
+              description = 'Run tests',
+              template = 'Run tests with $ARGUMENTS',
+              model = 'openai/gpt-4',
+              agent = 'tester',
+            },
+          })
+          return p
+        end
+
+        local original_active_session = state.active_session
+        state.active_session = { id = 'test-session' }
+
+        local original_api_client = state.api_client
+        local send_command_calls = {}
+        state.api_client = {
+          send_command = function(self, session_id, command_data)
+            table.insert(send_command_calls, { session_id = session_id, command_data = command_data })
+            return {
+              and_then = function()
+                return {}
+              end,
+            }
+          end,
+        }
+
+        local slash_commands = api.get_slash_commands():wait()
+
+        local test_no_model_cmd = nil
+        local test_with_model_cmd = nil
+
+        for _, cmd in ipairs(slash_commands) do
+          if cmd.slash_cmd == '/test-no-model' then
+            test_no_model_cmd = cmd
+          elseif cmd.slash_cmd == '/test-with-model' then
+            test_with_model_cmd = cmd
+          end
+        end
+
+        assert.truthy(test_no_model_cmd, 'Should find /test-no-model command')
+        assert.truthy(test_with_model_cmd, 'Should find /test-with-model command')
+
+        test_no_model_cmd.fn():wait()
+        assert.equal(1, #send_command_calls)
+        assert.equal('test-session', send_command_calls[1].session_id)
+        assert.equal('test-no-model', send_command_calls[1].command_data.command)
+        assert.equal('', send_command_calls[1].command_data.arguments)
+        assert.equal(nil, send_command_calls[1].command_data.model)
+        assert.equal(nil, send_command_calls[1].command_data.agent)
+
+        send_command_calls = {}
+
+        test_with_model_cmd.fn():wait()
+        assert.equal(1, #send_command_calls)
+        assert.equal('test-session', send_command_calls[1].session_id)
+        assert.equal('test-with-model', send_command_calls[1].command_data.command)
+        assert.equal('', send_command_calls[1].command_data.arguments)
+        assert.equal('openai/gpt-4', send_command_calls[1].command_data.model)
+        assert.equal('tester', send_command_calls[1].command_data.agent)
+
+        config_file.get_user_commands = original_get_user_commands
+        state.active_session = original_active_session
+        state.api_client = original_api_client
+      end)
+    end)
+
+    it('uses default description when none provided', function()
+      local config_file = require('opencode.config_file')
+      local original_get_user_commands = config_file.get_user_commands
+
+      config_file.get_user_commands = function()
+        local p = Promise.new()
+        p:resolve({
+          ['custom'] = {},
+        })
+        return p
+      end
+
+      local slash_commands = api.get_slash_commands():wait()
+
+      local custom_found = false
+      for _, cmd in ipairs(slash_commands) do
+        if cmd.slash_cmd == '/custom' then
+          custom_found = true
+          assert.equal('User command', cmd.desc)
+        end
+      end
+
+      assert.truthy(custom_found, 'Should include /custom command')
+
+      config_file.get_user_commands = original_get_user_commands
+    end)
+
+    it('includes built-in slash commands alongside user commands', function()
+      local config_file = require('opencode.config_file')
+      local original_get_user_commands = config_file.get_user_commands
+
+      config_file.get_user_commands = function()
+        local p = Promise.new()
+        p:resolve({
+          ['build'] = { description = 'Build the project' },
+        })
+        return p
+      end
+
+      local slash_commands = api.get_slash_commands():wait()
+
+      local help_found = false
+      local build_found = false
+
+      for _, cmd in ipairs(slash_commands) do
+        if cmd.slash_cmd == '/help' then
+          help_found = true
+        elseif cmd.slash_cmd == '/build' then
+          build_found = true
+        end
+      end
+
+      assert.truthy(help_found, 'Should include built-in /help command')
+      assert.truthy(build_found, 'Should include user /build command')
+
+      config_file.get_user_commands = original_get_user_commands
+    end)
+  end)
+
+  describe('current_model', function()
+    it('returns the current model from state', function()
+      local original_model = state.current_model
+      state.current_model = 'testmodel'
+
+      local model = api.current_model():wait()
+      assert.equal('testmodel', model)
+
+      state.current_model = original_model
+    end)
+
+    it('falls back to config file model when state.current_model is nil', function()
+      local original_model = state.current_model
+      state.current_model = nil
+
+      local config_file = require('opencode.config_file')
+      local original_get_opencode_config = config_file.get_opencode_config
+
+      config_file.get_opencode_config = function()
+        local p = Promise.new()
+        p:resolve({ model = 'testmodel' })
+        return p
+      end
+
+      local model = api.current_model():wait()
+
+      assert.equal('testmodel', model)
+
+      config_file.get_opencode_config = original_get_opencode_config
+      state.current_model = original_model
+    end)
+  end)
+
+  describe('toggle_zoom', function()
+    it('calls ui.toggle_zoom when toggle_zoom is called', function()
+      stub(ui, 'toggle_zoom')
+
+      api.toggle_zoom()
+
+      assert.stub(ui.toggle_zoom).was_called()
+    end)
+
+    it('is available in the commands table', function()
+      local cmd = api.commands['toggle_zoom']
+      assert.truthy(cmd, 'toggle_zoom command should exist')
+      assert.equal('Toggle window zoom', cmd.desc)
+      assert.is_function(cmd.fn)
+    end)
+
+    it('routes through command interface', function()
+      stub(ui, 'toggle_zoom')
+
+      api.commands.toggle_zoom.fn({})
+
+      assert.stub(ui.toggle_zoom).was_called()
+    end)
+  end)
+end)

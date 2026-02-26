@@ -1,0 +1,152 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+## [0.1.23] - 2026-02-19
+
+### Added
+- `sound-toggle` custom tool - Enable, disable, toggle, or check sound status directly from OpenCode
+- Use natural language: "Use sound-toggle to disable sounds" or "Use sound-toggle to check status"
+- Config file path can be overridden via `OPENCODE_NOTIFIER_CONFIG_PATH` environment variable for testing
+
+### Fixed
+- Preserve all config fields when saving (no loss of sounds/volumes/showSessionTitle)
+- Sound toggle now takes effect immediately (config reloaded per event/tool)
+
+## [0.1.22] - 2026-02-18
+
+### Added
+- New `interrupted` event for when sessions are cancelled (e.g., Esc pressed) (#29) - @minpeter
+- Shows "Session was interrupted" instead of duplicate error+completion notifications
+- Only one sound plays when interruption is detected
+- Auto-cleanup of error tracking to prevent memory leaks
+- Fix placeholder interpolation so `{sessionTitle}` is removed when disabled
+
+### Changed
+- Restored PR #29's 350ms delay and 4-map tracking for reliable race handling
+- Added cleanup for session maps to avoid leaks
+
+## [0.1.21] - 2026-02-18
+
+### Added
+- Session title in notification messages (#28) - @cristianmiranda
+- New `showSessionTitle` config option (default: false)
+- New `{sessionTitle}` placeholder for notification messages
+- New `{projectName}` token support in custom command args
+- Session title pre-loading for better performance on error events
+
+### Notes
+- Session titles are disabled by default to avoid large notification text
+
+## [0.1.20] - 2026-02-18
+
+### Added
+- Per-event sound volume configuration (#30) - @minpeter
+- New `volumes` config option to set individual volume levels (0-1) for each event type
+- Supported on macOS and Linux (Windows plays at full volume)
+- Volume values are automatically clamped to valid range (0-1)
+- Default volume is 100% (1.0) for all events when not specified
+
+## [0.1.19] - 2026-02-12
+
+### Added
+- macOS notification system selector (#23)
+- `notificationSystem` config option: `"osascript"` (default, reliable) or `"node-notifier"` (icons)
+- Choose between reliable notifications (osascript) or custom icons (node-notifier) on macOS
+
+## [0.1.18] - 2026-02-06
+
+### Added
+- Icon support for notifications on Windows and Linux
+- OpenCode logo displays in system notifications
+- New `showIcon` config option (default: true)
+
+### Notes
+- macOS uses osascript which doesn't support custom icons (shows Script Editor icon)
+
+## [0.1.15] - 2026-01-20
+
+### Fixed
+- README now shows correct default message for `subagent_complete`
+
+## [0.1.14] - 2026-01-20
+
+### Added
+- Custom command execution for events with `{event}` and `{message}` token substitution
+- `command.minDuration` option to skip command if response time is below threshold
+- New `subagent_complete` event for subagent session completions (disabled by default)
+
+### Changed
+- `complete` event now only fires for main (primary) sessions
+- Elapsed time for `minDuration` now measures time since last user prompt
+
+### Fixed
+- Config parsing for `subagent_complete` now supports top-level format
+
+## [0.1.13] - 2026-01-14
+
+### Added
+- Show project folder name in notification title (closes #12)
+- New config option `showProjectName` (default: true)
+
+### Changed
+- Default messages now use "Session" prefix instead of "OpenCode" to avoid repetition
+
+### Fixed
+- Config parsing for `question` event now supports top-level format
+
+## [0.1.12] - 2026-01-14
+
+### Added
+- Notification and sound when the `question` tool is invoked (closes #14)
+
+## [0.1.11] - 2026-01-14
+
+### Changed
+- Sounds now enabled by default (aligns with documented behavior)
+
+### Fixed
+- Improved bundled sound file path resolution for different installation structures
+
+## [0.1.10] - 2026-01-04
+
+### Fixed
+- macOS notifications now use native `osascript` instead of `node-notifier` (fixes notifications not showing)
+
+### Added
+- `permission.ask` hook for more stable permission notifications
+
+## [0.1.9] - 2026-01-04
+
+### Added
+- Growl fallback for macOS notifications (`withFallback: true`)
+
+## [0.1.8] - 2026-01-04
+
+### Fixed
+- Support both `permission.updated` (OpenCode v1.0.223 and earlier) and `permission.asked` (OpenCode v1.0.224+) events
+- macOS notifications now work across all OpenCode versions
+
+### Changed
+- Updated `@opencode-ai/plugin` dependency to `^1.0.224`
+
+### Added
+- Improved installation and updating instructions in README
+- Troubleshooting section in README
+
+## [0.1.7] - 2026-01-03
+
+### Fixed
+- Windows sound playback using correct PowerShell syntax
+
+## [0.1.6] - 2026-01-03
+
+### Fixed
+- Linux duplicate notifications with debounce logic
+
+## [0.1.5] - 2026-01-02
+
+### Added
+- Initial release with notification and sound support
+- Cross-platform support (macOS, Linux, Windows)
+- Configurable events, messages, and custom sounds

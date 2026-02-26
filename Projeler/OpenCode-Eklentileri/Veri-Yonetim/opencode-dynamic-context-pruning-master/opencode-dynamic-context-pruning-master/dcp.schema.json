@@ -1,0 +1,279 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://raw.githubusercontent.com/Opencode-DCP/opencode-dynamic-context-pruning/master/dcp.schema.json",
+    "title": "DCP Plugin Configuration",
+    "description": "Configuration schema for the OpenCode Dynamic Context Pruning plugin",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "$schema": {
+            "type": "string",
+            "description": "JSON Schema reference for IDE autocomplete"
+        },
+        "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable or disable the DCP plugin"
+        },
+        "debug": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable debug logging"
+        },
+        "pruneNotification": {
+            "type": "string",
+            "enum": ["off", "minimal", "detailed"],
+            "default": "detailed",
+            "description": "Level of notification shown when pruning occurs"
+        },
+        "pruneNotificationType": {
+            "type": "string",
+            "enum": ["chat", "toast"],
+            "default": "chat",
+            "description": "Where to display prune notifications (chat message or toast notification)"
+        },
+        "commands": {
+            "type": "object",
+            "description": "Configuration for DCP slash commands (/dcp)",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable DCP slash commands (/dcp)"
+                },
+                "protectedTools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "description": "Additional tool names to protect from pruning via commands (e.g., /dcp sweep)"
+                }
+            },
+            "default": {
+                "enabled": true,
+                "protectedTools": []
+            }
+        },
+        "manualMode": {
+            "type": "object",
+            "description": "Manual mode behavior for context management tools",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Start new sessions with manual mode enabled"
+                },
+                "automaticStrategies": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "When manual mode is enabled, keep automatic deduplication/supersede/purge strategies running"
+                }
+            },
+            "default": {
+                "enabled": false,
+                "automaticStrategies": true
+            }
+        },
+        "turnProtection": {
+            "type": "object",
+            "description": "Protect recent tool outputs from being pruned",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enable turn-based protection"
+                },
+                "turns": {
+                    "type": "number",
+                    "default": 4,
+                    "description": "Number of recent turns to protect from pruning"
+                }
+            }
+        },
+        "protectedFilePatterns": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "default": [],
+            "description": "Glob patterns for files that should be protected from pruning (e.g., '**/*.config.ts')"
+        },
+        "tools": {
+            "type": "object",
+            "description": "Configuration for pruning tools",
+            "additionalProperties": false,
+            "properties": {
+                "settings": {
+                    "type": "object",
+                    "description": "General tool settings",
+                    "additionalProperties": false,
+                    "properties": {
+                        "nudgeEnabled": {
+                            "type": "boolean",
+                            "default": true,
+                            "description": "Enable nudge reminders to prune context"
+                        },
+                        "nudgeFrequency": {
+                            "type": "number",
+                            "default": 10,
+                            "description": "Frequency of nudge reminders (in turns)"
+                        },
+                        "protectedTools": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": [],
+                            "description": "Tool names that should be protected from automatic pruning"
+                        },
+                        "contextLimit": {
+                            "description": "When session tokens exceed this limit, a compress nudge is injected (\"X%\" uses percentage of the model's context window)",
+                            "default": 100000,
+                            "oneOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "string",
+                                    "pattern": "^\\d+(?:\\.\\d+)?%$"
+                                }
+                            ]
+                        },
+                        "modelLimits": {
+                            "description": "Model-specific context limits by exact provider/model key. Examples: \"openai/gpt-5\", \"anthropic/claude-3-7-sonnet\", \"ollama/llama3.1\"",
+                            "type": "object",
+                            "additionalProperties": {
+                                "oneOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "string",
+                                        "pattern": "^\\d+(?:\\.\\d+)?%$"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                "distill": {
+                    "type": "object",
+                    "description": "Configuration for the distill tool",
+                    "additionalProperties": false,
+                    "properties": {
+                        "permission": {
+                            "type": "string",
+                            "enum": ["ask", "allow", "deny"],
+                            "default": "allow",
+                            "description": "Permission mode (deny disables the tool)"
+                        },
+                        "showDistillation": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "Show distillation output in the UI"
+                        }
+                    }
+                },
+                "compress": {
+                    "type": "object",
+                    "description": "Configuration for the compress tool",
+                    "additionalProperties": false,
+                    "properties": {
+                        "permission": {
+                            "type": "string",
+                            "enum": ["ask", "allow", "deny"],
+                            "default": "ask",
+                            "description": "Permission mode (deny disables the tool)"
+                        },
+                        "showCompression": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "Show summary output in the UI"
+                        }
+                    }
+                },
+                "prune": {
+                    "type": "object",
+                    "description": "Configuration for the prune tool",
+                    "additionalProperties": false,
+                    "properties": {
+                        "permission": {
+                            "type": "string",
+                            "enum": ["ask", "allow", "deny"],
+                            "default": "allow",
+                            "description": "Permission mode (deny disables the tool)"
+                        }
+                    }
+                }
+            }
+        },
+        "strategies": {
+            "type": "object",
+            "description": "Automatic pruning strategies",
+            "additionalProperties": false,
+            "properties": {
+                "deduplication": {
+                    "type": "object",
+                    "description": "Remove duplicate tool outputs",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean",
+                            "default": true,
+                            "description": "Enable deduplication strategy"
+                        },
+                        "protectedTools": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": [],
+                            "description": "Tool names excluded from deduplication"
+                        }
+                    }
+                },
+                "supersedeWrites": {
+                    "type": "object",
+                    "description": "Replace older write/edit outputs when new ones target the same file",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean",
+                            "default": true,
+                            "description": "Enable supersede writes strategy"
+                        }
+                    }
+                },
+                "purgeErrors": {
+                    "type": "object",
+                    "description": "Remove tool outputs that resulted in errors",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean",
+                            "default": true,
+                            "description": "Enable purge errors strategy"
+                        },
+                        "turns": {
+                            "type": "number",
+                            "default": 4,
+                            "description": "Number of turns after which errors are purged"
+                        },
+                        "protectedTools": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": [],
+                            "description": "Tool names excluded from error purging"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
