@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>PersonalOS UI</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#0b1220;color:#e6eef8}
+    header{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.08);position:sticky;top:0;background:#0b1220}
+    .brand{font-weight:700}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap}
+    button{background:#111827;color:#e6eef8;border:1px solid rgba(255,255,255,.10);border-radius:10px;padding:8px 10px;cursor:pointer}
+    button.active{outline:2px solid rgba(124,58,237,.55)}
+    button.selected{background:#7c3aed;color:#fff}
+    main{padding:16px;display:grid;grid-template-columns:1fr;gap:12px}
+    .card{background:#111827;border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:12px}
+    input,select,textarea{width:100%;background:#0b1220;color:#e6eef8;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:8px}
+    textarea{min-height:280px;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace}
+    .row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px}
+    .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    pre{white-space:pre-wrap;word-break:break-word;background:#0b1220;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px;max-height:520px;overflow:auto}
+    .muted{color:#9fb7d9;font-size:12px}
+    .ok{color:#34d399}
+    .bad{color:#f87171}
+    /* Tooltip */
+    #tooltip{position:fixed;background:#1f2937;border:1px solid rgba(124,58,237,.55);color:#fff;padding:8px 12px;border-radius:8px;font-size:13px;pointer-events:none;z-index:9999;display:none;max-width:300px;box-shadow:0 4px 12px rgba(0,0,0,.3)}
+    #copyFeedback{position:fixed;top:20px;right:20px;background:#10b981;color:#fff;padding:12px 20px;border-radius:8px;display:none;z-index:9998;font-weight:600}
+    /* Dark mode */
+    body.dark-mode{background:#ffffff;color:#1f2937}
+    body.dark-mode header{background:#f9fafb;border-bottom-color:#e5e7eb}
+    body.dark-mode .card{background:#f9fafb;border-color:#e5e7eb}
+    body.dark-mode input,body.dark-mode textarea,body.dark-mode select{background:#fff;border-color:#d1d5db;color:#1f2937}
+    body.dark-mode pre{background:#f3f4f6;border-color:#e5e7eb}
+    body.dark-mode button{background:#f3f4f6;color:#1f2937;border-color:#d1d5db}
+    body.dark-mode .muted{color:#6b7280}
+  </style>
+</head>
+<body>
+<header>
+  <div class="brand">PersonalOS UI</div>
+  <div style="min-width:220px">
+    <div class="muted">Authorization (Bearer ...)</div>
+    <input id="token" placeholder="Bearer devtoken" />
+  </div>
+  <div class="tabs">
+    <button class="tab active" data-tab="status">Status</button>
+    <button class="tab" data-tab="inbox">Inbox</button>
+    <button class="tab" data-tab="jobs">Jobs</button>
+    <button class="tab" data-tab="dlq">DLQ</button>
+    <button class="tab" data-tab="rules">Rules</button>
+    <button class="tab" data-tab="omega">OMEGA</button>
+  </div>
+  <button id="themeToggle" onclick="toggleTheme(event)" title="Tema değiştir">🌙</button>
+  <button id="refresh">Refresh</button>
+</header>
+
+<main>
+  <div id="view"></div>
+</main>
+
+<div id="tooltip"></div>
+<div id="copyFeedback">✅ Komut kopyalandı!</div>
+
+<script>
+const $ = (id)=>document.getElementById(id);
+const view = $("view");
+const tokenInput = $("token");
+
+function getAuthHeader(){
+  const v = tokenInput.value.trim();
+  if (!v) return {};
+  return { "Authorization": v.startsWith("Bearer ") ? v : ("Bearer " + v) };
+}
+function saveToken(){ localStorage.setItem("personalos_token", tokenInput.value.trim()); }
+function loadToken(){
+  const t = localStorage.getItem("personalos_token") || "Bearer devtoken";
+  tokenInput.value = t;
+}
+tokenInput.addEventListener("change", saveToken);
+loadToken();
+
+async function api(path, opts={}){
+  const headers = { ...(opts.headers||{}), ...getAuthHeader() };
+  const res = await fetch(path, { ...opts, headers });
+  const txt = await res.text();
+  let data = null;
+  try{ data = JSON.parse(txt); }catch{ data = { raw: txt }; }
+  if(!res.ok) throw new Error((data && data.error) ? data.error : ("HTTP "+res.status));
+  return data;
+}
+
+function setTab(name){
+  document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active", b.dataset.tab===name));
+  render(name);
+}
+
+document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click", ()=>setTab(b.dataset.tab)));
+$("refresh").addEventListener("click", ()=>{
+  const active = document.querySelector(".tab.active").dataset.tab;
+  render(active);
+});
+
+function card(title, bodyHtml){
+  return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+    <div><strong>${title}</strong></div></div><div style="margin-top:10px">${bodyHtml}</div></div>`;
+}
+
+async function render(tab){
+  if(tab==="status") return renderStatus();
+  if(tab==="inbox") return renderInbox();
+  if(tab==="jobs") return renderJobs();
+  if(tab==="dlq") return renderDLQ();
+  if(tab==="rules") return renderRules();
+  if(tab==="omega") return renderOmega();
+}
+
+async function renderStatus(){
+  view.innerHTML = card("System Status", `<div class="muted">Loading...</div>`);
+  try{
+    const data = await api("/api/health");
+    const ok = `<span class="ok">OK</span>`;
+    view.innerHTML = card("System Status", `
+      <div>Gateway: ${ok}</div>
+      <div class="muted">${escapeHtml(JSON.stringify(data.gateway))}</div>
+      <div style="margin-top:8px">Dispatcher: ${ok}</div>
+      <div class="muted">${escapeHtml(JSON.stringify(data.dispatcher))}</div>
+      <div style="margin-top:8px"><button onclick="renderQueues()">Queues</button></div>
+      <div id="queuesBox" style="margin-top:8px"></div>
+    `);
+  }catch(e){
+    view.innerHTML = card("System Status", `<div class="bad">${escapeHtml(e.message)}</div>`);
+  }
+}
+
+async function renderQueues(){
+  const el = document.getElementById("queuesBox");
+  el.innerHTML = `<div class="muted">Loading queues...</div>`;
+  try{
+    const q = await api("/api/queues");
+    el.innerHTML = `<pre>${escapeHtml(JSON.stringify(q, null, 2))}</pre>`;
+  }catch(e){
+    el.innerHTML = `<div class="bad">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function renderInbox(){
+  view.innerHTML = card("Inbox", `
+    <div class="muted">Inbox, adapter /webhook üzerinden tetiklenir; Dispatcher işler ve reply enqueue eder.</div>
+    <div class="row2" style="margin-top:10px">
+      <div>
+        <div class="muted">WhatsApp inbound text</div>
+        <input id="wText" value="ping"/>
+        <div style="margin-top:8px"><button onclick="sendInbound('whatsapp')">Send WhatsApp Inbound</button></div>
+      </div>
+      <div>
+        <div class="muted">Telegram inbound text</div>
+        <input id="tText" value="echo merhaba"/>
+        <div style="margin-top:8px"><button onclick="sendInbound('telegram')">Send Telegram Inbound</button></div>
+      </div>
+    </div>
+    <div class="row2" style="margin-top:10px">
+      <div>
+        <div class="muted">Email inbound text</div>
+        <input id="eText" value="help"/>
+        <div style="margin-top:8px"><button onclick="sendInbound('email')">Send Email Inbound</button></div>
+      </div>
+      <div>
+        <div class="muted">Result</div>
+        <pre id="inboxOut">{}</pre>
+      </div>
+    </div>
+  `);
+}
+
+async function sendInbound(ch){
+  const out = document.getElementById("inboxOut");
+  out.textContent = "Sending...";
+  const map = {
+    whatsapp: { url: "http://localhost:3000/webhook", from: "+905555555555", text: document.getElementById("wText").value },
+    telegram: { url: "http://localhost:3002/webhook", from: "@user", text: document.getElementById("tText").value },
+    email:    { url: "http://localhost:3003/webhook", from: "user@example.com", text: document.getElementById("eText").value }
+  };
+  const p = map[ch];
+  try{
+    const r = await fetch(p.url, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ event_type:"message", from:p.from, text:p.text }) });
+    const j = await r.json().catch(()=>({}));
+    out.textContent = JSON.stringify({ http:r.status, response:j }, null, 2);
+  }catch(e){
+    out.textContent = String(e.message || e);
+  }
+}
+
+async function renderJobs(){
+  view.innerHTML = card("Jobs", `
+    <div class="row">
+      <div><div class="muted">Channel</div><select id="jCh"><option>whatsapp</option><option>telegram</option><option>email</option></select></div>
+      <div><div class="muted">Status</div><select id="jSt"><option>queued</option><option>processing</option><option>retry_scheduled</option><option>done</option><option>failed</option><option>dlq</option></select></div>
+      <div><div class="muted">Limit</div><input id="jLim" value="50"/></div>
+      <div><div class="muted">Cursor</div><input id="jCur" placeholder="(optional)"/></div>
+    </div>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="loadJobs()">Load</button>
+      <button onclick="purgeJobs()">Purge (older_than_ms)</button>
+      <input id="purgeAge" style="max-width:220px" value="600000" title="older_than_ms"/>
+      <label class="muted" style="display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="purgeDel" /> delete_jobs
+      </label>
+    </div>
+    <div style="margin-top:10px"><pre id="jobsOut">{}</pre></div>
+  `);
+  loadJobs();
+}
+
+async function loadJobs(){
+  const ch = document.getElementById("jCh").value;
+  const st = document.getElementById("jSt").value;
+  const lim = document.getElementById("jLim").value;
+  const cur = document.getElementById("jCur").value.trim();
+  const out = document.getElementById("jobsOut");
+  out.textContent = "Loading...";
+  try{
+    const qs = new URLSearchParams({ channel:ch, status:st, limit:lim });
+    if(cur) qs.set("cursor", cur);
+    const data = await api("/api/jobs?"+qs.toString());
+    out.textContent = JSON.stringify(data, null, 2);
+    if(data && data.next_cursor) document.getElementById("jCur").value = data.next_cursor;
+  }catch(e){
+    out.textContent = String(e.message || e);
+  }
+}
+
+async function purgeJobs(){
+  const ch = document.getElementById("jCh").value;
+  const st = document.getElementById("jSt").value;
+  const age = Number(document.getElementById("purgeAge").value || 0);
+  const del = document.getElementById("purgeDel").checked;
+  const out = document.getElementById("jobsOut");
+  out.textContent = "Purging...";
+  try{
+    const body = { channel: ch, status: st, older_than_ms: age, limit: 200, delete_jobs: del };
+    const data = await api("/api/purge", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) });
+    out.textContent = JSON.stringify(data, null, 2);
+  }catch(e){
+    out.textContent = String(e.message || e);
+  }
+}
+
+async function renderDLQ(){
+  view.innerHTML = card("DLQ", `
+    <div class="row2">
+      <div>
+        <div class="muted">Channel</div>
+        <select id="dCh"><option>whatsapp</option><option>telegram</option><option>email</option></select>
+      </div>
+      <div>
+        <div class="muted">Limit</div>
+        <input id="dLim" value="50"/>
+      </div>
+    </div>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="loadDLQ()">List</button>
+      <button onclick="retryDLQ()">Retry bulk</button>
+      <label class="muted" style="display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="dReset" /> reset_attempts
+      </label>
+    </div>
+    <div style="margin-top:10px"><pre id="dlqOut">{}</pre></div>
+  `);
+  loadDLQ();
+}
+
+async function loadDLQ(){
+  const ch = document.getElementById("dCh").value;
+  const lim = document.getElementById("dLim").value;
+  const out = document.getElementById("dlqOut");
+  out.textContent = "Loading...";
+  try{
+    const data = await api(`/api/dlq?channel=${encodeURIComponent(ch)}&limit=${encodeURIComponent(lim)}`);
+    out.textContent = JSON.stringify(data, null, 2);
+  }catch(e){
+    out.textContent = String(e.message || e);
+  }
+}
+
+async function retryDLQ(){
+  const ch = document.getElementById("dCh").value;
+  const lim = Number(document.getElementById("dLim").value || 25);
+  const reset = document.getElementById("dReset").checked;
+  const out = document.getElementById("dlqOut");
+  out.textContent = "Retrying...";
+  try{
+    const data = await api(`/api/dlq/retry`, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ channel: ch, limit: lim, reset_attempts: reset }) });
+    out.textContent = JSON.stringify(data, null, 2);
+  }catch(e){
+    out.textContent = String(e.message || e);
+  }
+}
+
+async function renderRules(){
+  view.innerHTML = card("Rules Editor", `
+    <div class="muted">workflows.json dosyasını UI üzerinden düzenle, Kaydet+Reload yap.</div>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="loadWorkflows()">Load</button>
+      <button onclick="saveWorkflows()">Save</button>
+      <button onclick="reloadWorkflows()">Reload Dispatcher</button>
+    </div>
+    <div style="margin-top:10px" class="row2">
+      <div><textarea id="wfText"></textarea></div>
+      <div><pre id="wfOut">{}</pre></div>
+    </div>
+  `);
+  loadWorkflows();
+}
+
+async function loadWorkflows(){
+  const out = document.getElementById("wfOut");
+  const ta  = document.getElementById("wfText");
+  out.textContent = "Loading...";
+  try{
+    const data = await api("/api/workflows");
+    ta.value = JSON.stringify(data.workflows, null, 2);
+    out.textContent = JSON.stringify({ ok:true }, null, 2);
+  }catch(e){
+    out.textContent = String(e.message || e);
+  }
+}
+
+async function saveWorkflows(){
+  const out = document.getElementById("wfOut");
+  const ta  = document.getElementById("wfText");
+  out.textContent = "Saving...";
+  try{
+    const wf = JSON.parse(ta.value);
+    const data = await api("/api/workflows", { method:"PUT", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ workflows: wf }) });
+    out.textContent = JSON.stringify(data, null, 2);
+  }catch(e){
+    out.textContent = String(e.message || e);
+  }
+}
+
+async function reloadWorkflows(){
+  const out = document.getElementById("wfOut");
+  out.textContent = "Reloading...";
+  try{
+    const data = await api("/api/workflows/reload", { method:"POST" });
+    out.textContent = JSON.stringify(data, null, 2);
+  }catch(e){
+    out.textContent = String(e.message || e);
+  }
+}
+
+async function renderOmega(){
+  view.innerHTML = card("OMEGA v120.0 - Köstebek İliği", `
+    <div class="muted">PersonalOS OMEGA sistem kontrolü</div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="omegaStatus()">📊 Durum</button>
+      <button onclick="omegaSummary()">📝 Özet</button>
+      <button onclick="omegaLogs()">📜 Loglar</button>
+      <button onclick="omegaClear()">🗑️ Temizle</button>
+      <button onclick="omegaSprint()">⚡ Sprint</button>
+    </div>
+    <div style="margin-top:12px">
+      <div class="muted">OMEGA Çıktı:</div>
+      <pre id="omegaOut">{}</pre>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="copyInstallCode(event)" title="Install kodunu kopyala">📋 Install Kodu</button>
+      <button onclick="toggleTheme(event)" title="Tema değiştir">🌙 Tema</button>
+    </div>
+  `);
+}
+
+async function omegaStatus(){
+  const out = document.getElementById("omegaOut");
+  out.textContent = "Yükleniyor...";
+  try{
+    const data = await api("/omega/status");
+    out.textContent = JSON.stringify(data, null, 2);
+  }catch(e){
+    out.textContent = "Hata: " + (e.message || e);
+  }
+}
+
+async function omegaSummary(){
+  const out = document.getElementById("omegaOut");
+  out.textContent = "Yükleniyor...";
+  try{
+    const data = await api("/omega/summary");
+    out.textContent = JSON.stringify(data, null, 2);
+  }catch(e){
+    out.textContent = "Hata: " + (e.message || e);
+  }
+}
+
+async function omegaLogs(){
+  const out = document.getElementById("omegaOut");
+  out.textContent = "Yükleniyor...";
+  try{
+    const data = await api("/omega/logs");
+    out.textContent = JSON.stringify(data, null, 2);
+  }catch(e){
+    out.textContent = "Hata: " + (e.message || e);
+  }
+}
+
+async function omegaClear(){
+  const out = document.getElementById("omegaOut");
+  out.textContent = "Temizleniyor...";
+  try{
+    const data = await api("/omega/clear", { method:"POST" });
+    out.textContent = JSON.stringify(data, null, 2);
+  }catch(e){
+    out.textContent = "Hata: " + (e.message || e);
+  }
+}
+
+async function omegaSprint(){
+  const out = document.getElementById("omegaOut");
+  out.textContent = "Sprint çalışıyor...";
+  try{
+    const data = await api("/omega/execute", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ command: "S" }) });
+    out.textContent = JSON.stringify(data, null, 2);
+  }catch(e){
+    out.textContent = "Hata: " + (e.message || e);
+  }
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+
+// ========== OMEGA FONKSİYONLARI ==========
+
+function showTooltip(msg, x, y){
+  const tt = document.getElementById("tooltip");
+  tt.textContent = msg;
+  tt.style.left = x + "px";
+  tt.style.top = y + "px";
+  tt.style.display = "block";
+  clearTimeout(window._ttTimeout);
+  window._ttTimeout = setTimeout(()=>{ tt.style.display = "none"; }, 2500);
+}
+
+function selectCard(card, evt){
+  if(!card) return;
+  card.classList.toggle("selected");
+  const x = evt?.clientX ?? window.innerWidth / 2;
+  const y = evt?.clientY ?? 100;
+  showTooltip(card.classList.contains("selected") ? "✅ Seçildi!" : "❌ Seçim kaldırıldı", x, y);
+}
+
+async function copyInstallCode(evt){
+  const text = "curl -fsSL https://opencode.ai/install | bash";
+  try{
+    await navigator.clipboard.writeText(text);
+  }catch(e){
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+  const fb = document.getElementById("copyFeedback");
+  fb.style.display = "block";
+  const x = evt?.clientX ?? window.innerWidth / 2;
+  const y = evt?.clientY ?? 100;
+  showTooltip("✅ Komut kopyalandı!", x, y);
+  setTimeout(()=>{ fb.style.display = "none"; }, 2000);
+}
+
+function showModelInfo(model, evt){
+  const messages = {
+    "Claude": "🤖 Claude: Anthropic AI'nin güçlü modeli",
+    "GPT-4": "🧠 GPT-4: OpenAI'nin flagship modeli",
+    "Gemini": "💎 Gemini: Google'ın multimodal modeli",
+    "Copilot": "🐙 Copilot: GitHub'un AI asistanı",
+    "75+ Provider": "🌐 75+ Sağlayıcı: Models.dev üzerinden",
+    "Local": "🏠 Yerel: Kendi modelinizi kullanın"
+  };
+  const x = evt?.clientX ?? window.innerWidth / 2;
+  const y = evt?.clientY ?? 100;
+  showTooltip(messages[model] ?? "ℹ️ Model bilgisi yok", x, y);
+}
+
+function toggleTheme(evt){
+  document.body.classList.toggle("dark-mode");
+  const x = evt?.clientX ?? window.innerWidth / 2;
+  const y = evt?.clientY ?? 100;
+  showTooltip("🌙 Tema değiştirildi!", x, y);
+}
+
+// ========== RENDER FONKSİYONLARI ==========
+
+render("status");
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+[
+  {
+    "name": "ping-pong",
+    "channel": "whatsapp",
+    "trigger": "ping",
+    "reply": "Pong!"
+  },
+  {
+    "name": "ping-pong-telegram",
+    "channel": "telegram",
+    "trigger": "ping",
+    "reply": "Pong from Telegram!"
+  },
+  {
+    "name": "help-email",
+    "channel": "email",
+    "trigger": "help",
+    "reply": "yardimci olabilirim"
+  }
+]

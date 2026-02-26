@@ -1,0 +1,36 @@
+# PersonalOS Versions
+# Son guncelleme: 2026-02-23
+
+## Docker Images
+postgres: 15-alpine
+redis: 7-alpine
+vault: 1.14.0
+prometheus: v2.54.1
+grafana: 10.4.2
+minio: RELEASE.2024-01-16T16-07-38Z
+mailhog: v1.0.1
+portainer-ce: 2.21.0
+meilisearch: v1.7.0
+alertmanager: v0.27.0
+elasticsearch: 8.12.0
+kibana: 8.12.0
+rabbitmq: 3.12-management-alpine
+jenkins: 2.442
+traefik: v3.0
+
+## Node/Python
+node: 18-alpine
+python: 3.11-slim
+
+## Gateway Dependencies
+express: ^4.18.2
+ioredis: ^5.4.1
+pg: ^8.12.0
+prom-client: ^15.1.3
+uuid: ^9.0.1
+
+## Agent Dependencies
+Flask: 2.2.5
+requests: 2.31.0
+prometheus-client: 0.20.0
+gunicorn: 21.2.0

@@ -1,0 +1,6 @@
+{
+  "name": "personalos-render",
+  "version": "0.1.0",
+  "scripts": { "capture": "node capture_frames.js" },
+  "dependencies": { "puppeteer": "^20.0.0" }
+}

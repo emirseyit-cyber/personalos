@@ -1,0 +1,15 @@
+{
+  "whatsapp": {
+    "enabled": true,
+    "provider": "mock"
+  },
+  "telegram": {
+    "enabled": true,
+    "bot_token": "${TELEGRAM_BOT_TOKEN}"
+  },
+  "email": {
+    "enabled": true,
+    "smtp_host": "mailhog",
+    "smtp_port": 1025
+  }
+}

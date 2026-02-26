@@ -1,0 +1,12 @@
+node_modules/
+.env
+*.log
+dist/
+__pycache__/
+*.pyc
+.DS_Store
+personalos_bundle_*.zip
+render/frame-*.png
+*.mp4
+.vscode/
+.idea/

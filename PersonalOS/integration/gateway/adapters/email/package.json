@@ -1,0 +1,11 @@
+{
+  "name": "personalos-email-adapter",
+  "version": "0.1.0",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.8",
+    "mailparser": "^2.8.1"
+  }
+}

@@ -1,0 +1,452 @@
+# PersonalOS Docker Compose
+# Versions: Sabit surumler (guncelleme yaparken burayi da guncelle)
+# Son guncelleme: 2026-02-23
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-personalos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-personalos}
+      POSTGRES_DB: ${POSTGRES_DB:-personalos}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - personalos-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U personalos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1"]
+    volumes:
+      - redisdata:/data
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  vault:
+    image: hashicorp/vault:1.14.0
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_TOKEN:-root}
+      VAULT_ADDR: ${VAULT_ADDR:-http://0.0.0.0:8200}
+    command: "server -dev -dev-root-token-id=${VAULT_TOKEN:-root} -dev-listen-address=0.0.0.0:8200"
+    ports:
+      - "8200:8200"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: ./integration/gateway/service
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      PORT: "8080"
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgres://personalos:personalos@postgres:5432/personalos
+      DEFAULT_AGENT_URL: http://agent:8080
+      OMEGA_PYTHON: "python3"
+      OMEGA_SCRIPT: "/app/omega/omega.py"
+      OMEGA_DATA: "/data/omega"
+    volumes:
+      - ./integration/agents/runtime/skills/omega:/app/omega:ro
+      - omegadata:/data
+    ports:
+      - "8080:8080"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  whatsapp-adapter:
+    build:
+      context: ./integration/gateway/adapters/whatsapp
+      dockerfile: Dockerfile
+    environment:
+      - ADAPTER_API_KEY=${ADAPTER_API_KEY:-changeme}
+      - WHATSAPP_PROVIDER_URL=${WHATSAPP_PROVIDER_URL:-https://httpbin.org/post}
+      - SIGNING_SECRET=${SIGNING_SECRET:-changeme}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - gateway
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  agent:
+    build:
+      context: ./integration/agents/runtime
+      dockerfile: Dockerfile.agent
+    environment:
+      - AGENT_ID=${AGENT_ID:-example-agent-1}
+      - GATEWAY_URL=${GATEWAY_URL:-http://gateway:8080}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - DUCKAI_URL=${DUCKAI_URL:-http://duckai:3000/v1}
+    ports:
+      - "8081:8080"
+    depends_on:
+      - gateway
+      - redis
+      - postgres
+      - duckai
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  yerel-asistan:
+    image: python:3.11-slim
+    working_dir: /app
+    command: sh -c "pip install pyyaml flask -q && python yerel_asistan.py --api /data 5001"
+    volumes:
+      - ./integration/agents/runtime/yerel_asistan.py:/app/yerel_asistan.py:ro
+      - yerelasistan-data:/data
+    environment:
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    ports:
+      - "5001:5001"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    ports:
+      - "9090:9090"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    ports:
+      - "3001:3000"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - miniodata:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  portainer:
+    image: portainer/portainer-ce:2.21.0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainerdata:/data
+    ports:
+      - "9443:9443"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.7.0
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_KEY:-masterKey}
+    volumes:
+      - meilisearchdata:/meili_data
+    ports:
+      - "7700:7700"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  migrate:
+    image: postgres:15-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migration/db-migrations:/migrations:ro
+    entrypoint: ["/bin/sh", "-lc"]
+    command: "psql postgresql://personalos:personalos@postgres:5432/personalos -f /migrations/001_init.sql"
+    networks:
+      - personalos-net
+    restart: "no"
+
+  whatsapp-worker:
+    build:
+      context: ./integration/workers/whatsapp-worker
+      dockerfile: Dockerfile
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - WHATSAPP_ADAPTER_URL=http://whatsapp-adapter:3000
+      - ADAPTER_API_KEY=${ADAPTER_API_KEY:-changeme}
+    depends_on:
+      - redis
+      - whatsapp-adapter
+    ports:
+      - "9101:9101"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+    ports:
+      - "9093:9093"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearchdata:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.12.0
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-personalos}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD:-personalos}
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  jenkins:
+    image: jenkins/jenkins:2.442
+    volumes:
+      - jenkinsdata:/var/jenkins_home
+    ports:
+      - "9094:8080"
+      - "50000:50000"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  traefik:
+    image: traefik:v3.0
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+    ports:
+      - "8082:80"
+      - "8443:443"
+      - "8090:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  dispatcher:
+    build:
+      context: ./integration/dispatcher/service
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      PORT: "9400"
+      REDIS_URL: "redis://redis:6379"
+      GATEWAY_URL: "http://gateway:8080"
+    volumes:
+      - ./config:/app/config
+    ports:
+      - "9400:9400"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  telegram-adapter:
+    build:
+      context: ./integration/gateway/adapters/telegram
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      PORT: "3002"
+      GATEWAY_URL: "http://gateway:8080"
+      DISPATCHER_URL: "http://dispatcher:9400"
+      ADAPTER_API_KEY: "${TELEGRAM_ADAPTER_API_KEY:-changeme}"
+      SIGNING_SECRET: "${TELEGRAM_SIGNING_SECRET:-changeme}"
+    ports:
+      - "3002:3002"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  email-adapter:
+    build:
+      context: ./integration/gateway/adapters/email
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      PORT: "3003"
+      GATEWAY_URL: "http://gateway:8080"
+      DISPATCHER_URL: "http://dispatcher:9400"
+      ADAPTER_API_KEY: "${EMAIL_ADAPTER_API_KEY:-changeme}"
+    ports:
+      - "3003:3003"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  telegram-worker:
+    build:
+      context: ./integration/workers/channel-worker
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      CHANNEL: "telegram"
+      PORT: "9102"
+      REDIS_URL: "redis://redis:6379"
+      ADAPTER_URL: "http://telegram-adapter:3002"
+      ADAPTER_API_KEY: "${TELEGRAM_ADAPTER_API_KEY:-changeme}"
+      QUEUE_MAIN: "queue:telegram"
+      QUEUE_DELAYED: "queue:telegram:delayed"
+      QUEUE_DLQ: "queue:telegram:dlq"
+    ports:
+      - "9102:9102"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  email-worker:
+    build:
+      context: ./integration/workers/channel-worker
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      CHANNEL: "email"
+      PORT: "9103"
+      REDIS_URL: "redis://redis:6379"
+      ADAPTER_URL: "http://email-adapter:3003"
+      ADAPTER_API_KEY: "${EMAIL_ADAPTER_API_KEY:-changeme}"
+      QUEUE_MAIN: "queue:email"
+      QUEUE_DELAYED: "queue:email:delayed"
+      QUEUE_DLQ: "queue:email:dlq"
+    ports:
+      - "9103:9103"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: ./integration/ui/service
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      PORT: "8088"
+      GATEWAY_URL: "http://gateway:8080"
+      DISPATCHER_URL: "http://dispatcher:9400"
+      CONFIG_DIR: "/app/config"
+    volumes:
+      - ./config:/app/config
+    ports:
+      - "8088:8088"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+
+  duckai:
+    image: amirkabiri/duckai:latest
+    ports:
+      - "3004:3000"
+    networks:
+      - personalos-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - personalos-net
+    restart: unless-stopped
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  portainerdata:
+  meilisearchdata:
+  promdata:
+  elasticsearchdata:
+  rabbitmqdata:
+  jenkinsdata:
+  yerelasistan-data:
+  ollama-data:
+  omegadata:
+
+networks:
+  personalos-net:
+    driver: bridge
